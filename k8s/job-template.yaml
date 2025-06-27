@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: code-agent-job
+  labels:
+    app: code-capsule
+    job-type: agent
+spec:
+  template:
+    metadata:
+      labels:
+        app: code-capsule
+        job-type: agent
+    spec:
+      containers:
+      - name: code-agent
+        image: code-capsule-agent:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6080
+          name: novnc
+        - containerPort: 8888
+          name: jupyter
+        env:
+        - name: JOB_ID
+          value: "{{JOB_ID}}"
+        - name: WORKSPACE
+          value: "/workspace"
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /workspace
+          name: job-storage
+        - mountPath: /tmp/jobs
+          name: context-storage
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+      restartPolicy: Never
+      volumes:
+      - name: job-storage
+        emptyDir: {}
+      - name: context-storage
+        emptyDir: {}
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600  # Clean up after 10 minutes 

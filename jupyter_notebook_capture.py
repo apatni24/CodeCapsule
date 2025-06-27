@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 import nbformat
 from nbformat import read as read_notebook, write as write_notebook
+from context_manager import append_to_context
 
 # Set up logging
 logging.basicConfig(
@@ -230,48 +231,12 @@ class JupyterNotebookCapture:
         return formatted_outputs
     
     def _capture_notebook_to_context(self, notebook_data: Dict, is_error: bool = False):
-        """Capture notebook data to context manager"""
+        logger.debug(f"Attempting to write notebook context: {notebook_data}")
         try:
-            from context_manager import append_to_context
-            
-            if is_error:
-                content = f"NOTEBOOK ERROR: {notebook_data['notebook_path']}\nError: {notebook_data['error']}"
-                context_type = 'notebook_error'
-            else:
-                # Create a readable summary
-                summary = f"NOTEBOOK: {notebook_data['notebook_path']}\n"
-                summary += f"Action: {notebook_data['action']}\n"
-                summary += f"Cells: {notebook_data['total_cells']} total "
-                summary += f"({notebook_data['code_cells']} code, "
-                summary += f"{notebook_data['markdown_cells']} markdown, "
-                summary += f"{notebook_data['raw_cells']} raw)\n"
-                
-                # Add cell summaries
-                for cell in notebook_data['cells'][:5]:  # First 5 cells
-                    cell_type = cell['cell_type']
-                    source_preview = cell['source'][:100].replace('\n', ' ')
-                    summary += f"  [{cell['index']}] {cell_type}: {source_preview}...\n"
-                
-                if len(notebook_data['cells']) > 5:
-                    summary += f"  ... and {len(notebook_data['cells']) - 5} more cells\n"
-                
-                content = summary
-                context_type = 'notebook'
-            
-            metadata = {
-                'type': 'jupyter_notebook',
-                'notebook_path': notebook_data.get('notebook_path', ''),
-                'action': notebook_data.get('action', ''),
-                'is_error': is_error
-            }
-            
-            append_to_context(self.job_id, content, context_type, metadata)
-            logger.debug(f"Captured notebook to context: {context_type}")
-            
-        except ImportError as e:
-            logger.error(f"Failed to import context_manager: {e}")
+            append_to_context(self.job_id, str(notebook_data), 'notebook', {'is_error': is_error})
+            logger.debug("Successfully wrote notebook context entry.")
         except Exception as e:
-            logger.error(f"Error capturing notebook to context: {e}")
+            logger.error(f"Failed to write notebook context: {e}")
     
     def _monitor_cell_execution(self):
         """Monitor individual cell execution"""
@@ -388,34 +353,14 @@ class JupyterNotebookCapture:
             logger.error(f"Error setting up Jupyter hooks: {e}")
     
     def _capture_cell_execution(self, cell_data: Dict):
-        """Capture individual cell execution"""
+        logger.debug(f"Attempting to capture cell execution: {cell_data}")
         try:
-            from context_manager import append_to_context
-            
-            # Create readable cell execution summary
-            summary = f"CELL EXECUTION: {cell_data['cell_id']}\n"
-            summary += f"Success: {cell_data['success']}\n"
-            summary += f"Code:\n{cell_data['code']}\n"
-            
-            if cell_data['success'] and 'output' in cell_data:
-                summary += f"Output:\n{cell_data['output']}\n"
-            elif not cell_data['success']:
-                summary += f"Error: {cell_data['error']}\n"
-            
-            metadata = {
-                'type': 'jupyter_cell_execution',
-                'cell_id': cell_data['cell_id'],
-                'success': cell_data['success'],
-                'execution_time': cell_data.get('execution_end', '')
-            }
-            
-            append_to_context(self.job_id, summary, 'jupyter_cells', metadata)
-            logger.debug(f"Captured cell execution: {cell_data['cell_id']}")
-            
-        except ImportError as e:
-            logger.error(f"Failed to import context_manager: {e}")
+            from context_manager import capture_code_execution
+            logger.debug(f"Calling capture_code_execution for cell: {cell_data}")
+            capture_code_execution(self.job_id, cell_data['source'], cell_data.get('output', ''), cell_data.get('error', ''))
+            logger.debug(f"Successfully called capture_code_execution for cell: {cell_data}")
         except Exception as e:
-            logger.error(f"Error capturing cell execution: {e}")
+            logger.error(f"Failed to capture cell execution: {e}")
     
     def get_notebook_summary(self, notebook_path: str) -> Optional[Dict]:
         """Get a summary of a specific notebook"""

@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-capsule-orchestrator
+  namespace: code-capsule
+  labels:
+    app: code-capsule
+    component: orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: code-capsule
+      component: orchestrator
+  template:
+    metadata:
+      labels:
+        app: code-capsule
+        component: orchestrator
+    spec:
+      containers:
+      - name: orchestrator
+        image: code-capsule-agent:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: PYTHONPATH
+          value: "/workspace/.debug"
+        command: ["python3"]
+        args: ["orchestrator_k8s.py"]
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+        volumeMounts:
+        - mountPath: /tmp/jobs
+          name: jobs-storage
+        - mountPath: /workspace/data
+          name: orchestrator-workspace
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+      volumes:
+      - name: jobs-storage
+        emptyDir: {}
+      - name: orchestrator-workspace
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: code-capsule-orchestrator
+  namespace: code-capsule
+  labels:
+    app: code-capsule
+    component: orchestrator
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: code-capsule
+    component: orchestrator 

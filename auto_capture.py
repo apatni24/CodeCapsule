@@ -121,18 +121,14 @@ class AutoCapture:
                 if os.path.exists(self.shell_history_file):
                     with open(self.shell_history_file, 'r') as f:
                         lines = f.readlines()
-                    
                     logger.debug(f"Shell history lines: {len(lines)}, last position: {self.last_shell_position}")
-                    
                     if len(lines) > self.last_shell_position:
                         new_commands = lines[self.last_shell_position:]
                         logger.debug(f"Found {len(new_commands)} new commands")
-                        
                         for cmd in new_commands:
                             cmd = cmd.strip()
                             if cmd and not cmd.startswith('#'):
                                 logger.debug(f"Processing command: {cmd}")
-                                # Try to get command output (basic implementation)
                                 try:
                                     result = subprocess.run(
                                         cmd, shell=True, capture_output=True, text=True, timeout=5
@@ -140,28 +136,26 @@ class AutoCapture:
                                     output = result.stdout + result.stderr
                                     logger.debug(f"Command output: {output[:100]}...")
                                     logger.debug(f"Command exit code: {result.returncode}")
-                                    
+                                    logger.debug(f"Calling capture_shell_command for: {cmd}")
                                     capture_shell_command(
                                         self.job_id, cmd, output, result.returncode
                                     )
-                                    logger.debug(f"Successfully captured shell command: {cmd}")
+                                    logger.debug(f"Successfully called capture_shell_command for: {cmd}")
                                 except Exception as e:
                                     logger.error(f"Error executing command {cmd}: {e}")
+                                    logger.debug(f"Calling capture_shell_command for error: {cmd}")
                                     capture_shell_command(
                                         self.job_id, cmd, f"Error: {str(e)}", -1
                                     )
-                        
+                                    logger.debug(f"Successfully called capture_shell_command for error: {cmd}")
                         self.last_shell_position = len(lines)
                         logger.debug(f"Updated last position to: {self.last_shell_position}")
                 else:
                     logger.debug(f"Shell history file does not exist: {self.shell_history_file}")
-                
                 time.sleep(2)  # Check every 2 seconds
-                
             except Exception as e:
                 logger.error(f"Error in shell capture: {e}")
                 time.sleep(5)
-        
         logger.debug("Shell capture thread stopped")
     
     def _monitor_file_changes(self):
@@ -228,7 +222,7 @@ class AutoCapture:
                             
                             file_states[file_str] = current_state
                 else:
-                    logger.debug("Workspace does not exist")
+                    logger.debug(f"Workspace does not exist: {workspace} (cwd: {os.getcwd()})")
                 
                 time.sleep(5)  # Check every 5 seconds
                 
@@ -242,30 +236,25 @@ class AutoCapture:
         """Setup hooks for Python code execution"""
         logger.debug("Setting up Python execution hooks")
         try:
-            # Hook into IPython/Jupyter if available
             import IPython
             from IPython.core.interactiveshell import InteractiveShell
-            
             original_run_cell = InteractiveShell.run_cell
-            
             def run_cell_with_capture(self, raw_cell, *args, **kwargs):
-                # Capture the code before execution
                 logger.debug(f"Capturing code execution: {raw_cell[:100]}...")
+                logger.debug(f"Calling capture_code_execution for: {raw_cell[:100]}...")
                 capture_code_execution(self.job_id, raw_cell)
-                
-                # Execute and capture output
+                logger.debug(f"Successfully called capture_code_execution for: {raw_cell[:100]}...")
                 try:
                     result = original_run_cell(self, raw_cell, *args, **kwargs)
-                    # Note: IPython handles output display, so we don't capture it here
                     return result
                 except Exception as e:
                     logger.error(f"Error in code execution: {e}")
+                    logger.debug(f"Calling capture_code_execution for error: {raw_cell[:100]}...")
                     capture_code_execution(self.job_id, raw_cell, error=str(e))
+                    logger.debug(f"Successfully called capture_code_execution for error: {raw_cell[:100]}...")
                     raise
-            
             InteractiveShell.run_cell = run_cell_with_capture
             logger.info("Python execution hooks installed")
-            
         except ImportError as e:
             logger.warning(f"IPython not available, Python hooks not installed: {e}")
     

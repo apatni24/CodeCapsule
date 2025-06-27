@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: workspace-pvc-{{JOB_ID}}
+  labels:
+    app: code-capsule
+    job-id: "{{JOB_ID}}"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard 

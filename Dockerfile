@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y \
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # Install Jupyter and dependencies
-RUN pip3 install notebook nbformat psutil
+RUN pip3 install notebook nbformat psutil fastapi uvicorn
 
 # Copy Jupyter configuration
 COPY jupyter_config.py /usr/local/lib/python3.10/dist-packages/jupyter_config.py
@@ -61,7 +61,7 @@ if [ -n "$JOB_ID" ]; then\n\
     cp /opt/context/*.py /workspace/.debug/\n\
     # Set permissions for workspace\n\
     chown -R agentuser:agentuser /workspace\n\
-    chmod 700 /workspace/.debug\n\
+    chmod -R 755 /workspace/.debug\n\
     # Start auto-capture in background (from hidden directory)\n\
     cd /workspace\n\
     PYTHONPATH=/workspace/.debug python3 -c "import auto_capture; auto_capture.start_auto_capture(\"$JOB_ID\")" &\n\
@@ -69,6 +69,7 @@ if [ -n "$JOB_ID" ]; then\n\
     # Start context file sync in background\n\
     (while true; do\n\
         if [ -d "/tmp/jobs/$JOB_ID/context" ]; then\n\
+            mkdir -p /workspace/context\n\
             cp -r /tmp/jobs/$JOB_ID/context/* /workspace/context/ 2>/dev/null || true\n\
         fi\n\
         sleep 10\n\
@@ -83,6 +84,12 @@ RUN rm -f /etc/supervisord.conf /etc/supervisor/supervisord.conf /etc/supervisor
 # Copy supervisor config to the default location
 COPY supervisord.conf /etc/supervisord.conf
 
+
+COPY .debug/context_manager.py /workspace/.debug/context_manager.py
+
+# Copy all files to the workspace
+COPY . /workspace/
+
 # Switch to non-root user for job execution
 USER agentuser
 
@@ -91,4 +98,7 @@ EXPOSE 6080 8888
 
 # Entrypoint - use the wrapper to start context capture
 ENTRYPOINT ["/usr/local/bin/context_capture_wrapper.sh"]
-CMD ["/usr/bin/supervisord"] 
+CMD ["/usr/bin/supervisord"]
+
+# Install additional dependencies
+RUN pip3 install -r /workspace/requirements.txt 
