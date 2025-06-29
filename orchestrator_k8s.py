@@ -5,6 +5,7 @@ import os
 import shutil
 import yaml
 import tempfile
+import time
 from kubernetes import client, config
 from kubernetes.client import V1Job, V1Service, V1PersistentVolumeClaim
 from context_manager import (
@@ -14,7 +15,9 @@ from context_manager import (
 
 app = FastAPI()
 JOBS = {}
-AGENT_IMAGE = "code-capsule-agent:latest"
+AGENT_IMAGE = "codecapsuleacr.azurecr.io/code-capsule-agent:latest"
+print(f"🔧 Using AGENT_IMAGE: {AGENT_IMAGE}")
+
 JOBS_ROOT = "/tmp/jobs"
 
 # Port ranges for dynamic assignment
@@ -36,6 +39,8 @@ except Exception as e:
         print("✅ Loaded in-cluster Kubernetes config")
     except Exception as e:
         print(f"❌ Could not load Kubernetes config: {e}")
+
+NODE_EXTERNAL_IP = os.environ.get("NODE_EXTERNAL_IP", "20.244.44.105")  # Replace with your node's IP or set as env
 
 def find_available_port(port_range):
     used_ports = set()
@@ -64,7 +69,7 @@ def create_k8s_job(job_id: str, task: str) -> V1Job:
         ),
         spec=client.V1JobSpec(
             backoff_limit=0,
-            ttl_seconds_after_finished=600,  # Clean up after 10 minutes
+            ttl_seconds_after_finished=60,  # Clean up after 1 minute
             template=client.V1PodTemplateSpec(
                 metadata=client.V1ObjectMeta(
                     labels={
@@ -78,7 +83,7 @@ def create_k8s_job(job_id: str, task: str) -> V1Job:
                         client.V1Container(
                             name="code-agent",
                             image=AGENT_IMAGE,
-                            image_pull_policy="IfNotPresent",
+                            image_pull_policy="Always",
                             ports=[
                                 client.V1ContainerPort(container_port=6080, name="novnc"),
                                 client.V1ContainerPort(container_port=8888, name="jupyter")
@@ -88,8 +93,8 @@ def create_k8s_job(job_id: str, task: str) -> V1Job:
                                 client.V1EnvVar(name="WORKSPACE", value="/workspace")
                             ],
                             resources=client.V1ResourceRequirements(
-                                limits={"cpu": "1", "memory": "1Gi"},
-                                requests={"cpu": "500m", "memory": "512Mi"}
+                                limits={"cpu": "400m", "memory": "1.5Gi"},
+                                requests={"cpu": "200m", "memory": "1Gi"}
                             ),
                             volume_mounts=[
                                 client.V1VolumeMount(
@@ -171,8 +176,8 @@ def schedule_job(task: str, background_tasks: BackgroundTasks):
         "task": task,
         "novnc_port": novnc_port,
         "jupyter_port": jupyter_port,
-        "gui_url": f"http://localhost:{novnc_port}",
-        "jupyter_url": f"http://localhost:{jupyter_port}"
+        "gui_url": f"http://{NODE_EXTERNAL_IP}:{novnc_port}",
+        "jupyter_url": f"http://{NODE_EXTERNAL_IP}:{jupyter_port}"
     }
     
     # Initialize context with the task
@@ -299,7 +304,9 @@ def run_k8s_job(job_id: str, task: str, novnc_port: int, jupyter_port: int):
         core_v1.create_namespaced_service(namespace="code-capsule", body=service)
         print(f"✅ Created Kubernetes service: code-agent-svc-{job_id}")
         
-        # Wait for job to complete
+        # Wait for job to complete with timeout
+        max_wait_time = 600  # 10 minutes timeout
+        start_time = time.time()
         while True:
             job_status = batch_v1.read_namespaced_job_status(
                 name=f"code-agent-job-{job_id}", 
@@ -315,7 +322,38 @@ def run_k8s_job(job_id: str, task: str, novnc_port: int, jupyter_port: int):
                 JOBS[job_id]["error"] = "Job failed in Kubernetes"
                 return
             
-            import time
+            current_time = time.time()
+            if current_time - start_time > max_wait_time:
+                print(f"❌ Job {job_id} timed out after {max_wait_time} seconds")
+                JOBS[job_id]["status"] = "error"
+                JOBS[job_id]["error"] = "Job timed out in Kubernetes"
+                # Create output zip for timed out job
+                output_zip = os.path.join(job_dir, "output.zip")
+                shutil.make_archive(os.path.splitext(output_zip)[0], 'zip', job_dir)
+                JOBS[job_id]["download_link"] = f"/downloads/{job_id}/output.zip"
+                
+                # Clean up service for timed out job
+                try:
+                    core_v1.delete_namespaced_service(
+                        name=f"code-agent-svc-{job_id}", 
+                        namespace="code-capsule"
+                    )
+                    print(f"✅ Cleaned up service: code-agent-svc-{job_id}")
+                except Exception as e:
+                    print(f"⚠️ Could not clean up service: {e}")
+                
+                # Terminate the job to trigger TTL cleanup
+                try:
+                    batch_v1.delete_namespaced_job(
+                        name=f"code-agent-job-{job_id}", 
+                        namespace="code-capsule"
+                    )
+                    print(f"✅ Terminated job: code-agent-job-{job_id}")
+                except Exception as e:
+                    print(f"⚠️ Could not terminate job: {e}")
+                
+                return
+            
             time.sleep(5)
         
         # After job completes, zip the job output
@@ -341,4 +379,5 @@ def run_k8s_job(job_id: str, task: str, novnc_port: int, jupyter_port: int):
 
 if __name__ == "__main__":
     import uvicorn
+    print(f"🔧 Using AGENT_IMAGE: {AGENT_IMAGE}")
     uvicorn.run(app, host="0.0.0.0", port=8000) 

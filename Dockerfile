@@ -8,7 +8,7 @@ ENV TZ=Asia/Kolkata
 RUN apt-get update && apt-get install -y \
     tzdata gnupg lsb-release\
     python3 python3-pip nodejs npm \
-    xdotool xvfb fluxbox wget curl \
+    xdotool xvfb fluxbox curl \
     git net-tools x11vnc supervisor \
     xterm falkon nano\
     && ln -fs /usr/share/zoneinfo/Asia/Kolkata /etc/localtime \

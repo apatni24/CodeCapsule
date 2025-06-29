@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: code-agent
-        image: code-capsule-agent:latest
+        image: codecapsuleacr.azurecr.io/code-capsule-agent:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 6080
@@ -28,8 +28,8 @@ spec:
           value: "/workspace"
         resources:
           limits:
-            cpu: "1"
-            memory: "1Gi"
+            cpu: "250m"
+            memory: "51Mi"
           requests:
             cpu: "500m"
             memory: "512Mi"
